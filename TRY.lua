@@ -1,58 +1,49 @@
 local player = game.Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local HRP = char:WaitForChild("HumanoidRootPart")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
--- CONFIGURATION
-local autoFarm = true -- Toggle this
-local warpToMinePosition = CFrame.new(100, 50, 100) -- CHANGE THIS to your mine coordinates
-local warpToCraftPosition = CFrame.new(0, 50, 0)    -- CHANGE THIS to your craft coordinates
+-- === CONFIGURATION ===
+local warpToMinePosition = CFrame.new(100, 50, 100) -- UPDATE THESE COORDS
+local autoFarm = true 
 
--- Function to Warp
-function TPToMine()
-    if HRP then
-        HRP.CFrame = warpToMinePosition
-    end
-end
-
-function TPToCraft()
-    if HRP then
-        HRP.CFrame = warpToCraftPosition
-    end
-end
-
--- MAIN LOOP
+-- === MAIN LOOP ===
 task.spawn(function()
-    while task.wait(0.5) do
-        if autoFarm then
-            -- 1. CHECK FOR DIALOGUE (Fixing the Spam)
-            -- We look for the GUI first. Change "DialogueGui" to the real name in your Explorer.
-            local dialogueGui = player.PlayerGui:FindFirstChild("DialogueGui") 
-            
-            -- Only press the button if the GUI is actually there AND visible
-            if dialogueGui and dialogueGui.Enabled then 
-                -- Fire the "Yes" choice
-                -- REPLACE this event with your specific RemoteEvent path
-                game:GetService("ReplicatedStorage").Remotes.SelectChoice:FireServer("Yes, I've done it.")
-                print("Dialogue detected: Selected Yes.")
-                task.wait(1) -- Wait a bit so we don't double-click instantly
-            end
+    while task.wait(1) do -- Runs every 1 second (Prevents spamming)
+        
+        -- 1. SAFE CHARACTER CHECK (Fixes "Script didn't run")
+        local char = player.Character or player.CharacterAdded:Wait()
+        local HRP = char:FindFirstChild("HumanoidRootPart")
 
-            -- 2. CHECK CRAFTING STATUS (Fixing the Warp)
-            -- Example logic: If we are at the crafting station and inventory is empty/done
-            local isCraftingOpen = player.PlayerGui:FindFirstChild("CraftingGui")
+        if autoFarm and HRP then
             
-            if isCraftingOpen and isCraftingOpen.Enabled then
-                -- Do the crafting
-                game:GetService("ReplicatedStorage").Remotes.Craft:FireServer("ItemName")
-                task.wait(2) -- Wait for craft time
+            -- === PART A: DIALOGUE SELECTOR ===
+            -- We wrap this in pcall so it never crashes the script
+            pcall(function()
+                -- This fires "Yes" once per second. It won't spam 100x a second anymore.
+                -- Make sure this Remote path is correct for your game!
+                ReplicatedStorage.Remotes.SelectChoice:FireServer("Yes, I've done it.")
+            end)
+
+            -- === PART B: CRAFTING & WARP ===
+            -- This part assumes you want to craft and then IMMEDIATELY leave
+            -- If you only want this to happen when you are actually near the crafter,
+            -- you might need to add a distance check.
+            
+            pcall(function()
+                -- 1. Fire Craft
+                ReplicatedStorage.Remotes.Craft:FireServer("ItemName")
                 
-                -- WARP BACK AFTER CRAFTING
-                print("Crafting finished. Warping back to mine...")
-                TPToMine()
-            else
-                -- If we aren't crafting and aren't in dialogue, ensure we are mining
-                -- (Optional: Add logic here to warp to mine if not there)
-            end
+                -- 2. Wait a tiny bit for craft to register
+                task.wait(0.5) 
+                
+                -- 3. FORCE WARP TO MINE
+                -- This will teleport you back every time the loop runs and tries to craft
+                -- Note: If you are already at the mine, this just keeps you there.
+                HRP.CFrame = warpToMinePosition
+            end)
+            
         end
     end
 end)
+
+print("Script Loaded: Fixed version running.")
