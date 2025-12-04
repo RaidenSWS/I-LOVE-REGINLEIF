@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // UPDATED: FIXED DIALOGUE SPAM & FORCE WARP // --
+-- // UPDATED: FIXED QUEST COUNT & FORCE WARP CHECK // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -8,7 +8,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 -- // 1. SAFE WINDOW CONFIGURATION // --
 local Window = Fluent:CreateWindow({
     Title = "เสี่ยปาล์มขอเงินฟรี",
-    SubTitle = "Fixed Version",
+    SubTitle = "No Tween / Fix Count",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true, 
@@ -310,23 +310,31 @@ local function RunCraftingRoutine()
         CloseCraftingGUI()
         task.wait(1) 
         
-        -- 5. FORCE RETURN (UPDATED FIX)
+        -- 5. FORCE RETURN (FIXED: NO TWEENING)
         CurrentState = "FARMING"
         QuestCount = 0 
         
         Fluent:Notify({Title = "Return", Content = "Warping back to Mine...", Duration = 3})
         
-        -- Fix: Ensure movement is reset before warp
+        -- Reset movement and prep for warp
         CancelMovement()
+        local CraftingPosition = GetRootPart().Position
         
-        -- Fix: Call warp twice to be sure
-        WarpTo("Mine's Field") 
-        task.wait(1)
-        WarpTo("Mine's Field")
+        -- LOOP UNTIL WE ACTUALLY MOVE (Prevents Tweening)
+        local Tries = 0
+        repeat
+            if not _G.AutoFarm then break end
+            WarpTo("Mine's Field") 
+            task.wait(2.5) -- Wait for warp animation
+            Tries = Tries + 1
+            
+            -- Check if we moved far enough (more than 500 studs away from crafter)
+            local CurrentDist = (GetRootPart().Position - CraftingPosition).Magnitude
+        until CurrentDist > 500 or Tries > 5
         
-        -- Reset flag so main loop knows to verify location
+        -- Set flag true so farming loop knows we are there
         WarpedToMine = true 
-        task.wait(5) 
+        task.wait(2) 
     end
 end
 
@@ -562,26 +570,29 @@ local function Accept_MinerGoon_Quest()
                 if desc:IsA("ClickDetector") then fireclickdetector(desc) elseif desc:IsA("ProximityPrompt") then fireproximityprompt(desc) end
             end
             task.wait(0.5)
+            
             local MaxTries = 0
+            local QuestTurnedInThisSession = false -- FLAG TO STOP DOUBLE COUNT
+            
             while _G.AutoFarm and GetMinerGoonQuestStatus() ~= "ACTIVE" and MaxTries < 3 do
                 local steps = {{Choice = "[ Quest ]"}, {Choice = "[ Repeatable ]"}, {Choice = "Yes, I've done it."}, {Choice = "Okay"}, {Exit = true}}
                 for _, step in ipairs(steps) do
                     if not _G.AutoFarm then _G.QuestingMode = false; return end
                     
-                    -- // FIXED: SPAM PREVENTION CHECK // --
-                    -- Only press "Yes" if the dialogue UI is actually visible on screen
+                    -- // FIXED: SPAM CHECK + COUNT CHECK // --
                     if step.Choice == "Yes, I've done it." then
                         local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-                        -- Check for common Dialogue GUI names. Adjust "DialogueGui" if the game uses a different name.
                         local DialogUI = PlayerGui:FindFirstChild("DialogueGui") or PlayerGui:FindFirstChild("Dialogue") or PlayerGui:FindFirstChild("NPCGui")
                         
-                        -- If UI exists, fire event. If not, skip to prevent spam errors.
                         if DialogUI then
                             DIALOGUE_EVENT:FireServer(step)
-                            QuestCount = QuestCount + 1
-                            Fluent:Notify({Title = "Progress", Content = "Quest: " .. tostring(QuestCount) .. " / " .. tostring(MaxQuests), Duration = 3})
+                            -- ONLY COUNT IF WE HAVEN'T COUNTED THIS TURN-IN YET
+                            if not QuestTurnedInThisSession then
+                                QuestCount = QuestCount + 1
+                                QuestTurnedInThisSession = true -- Prevent counting again until next full cycle
+                                Fluent:Notify({Title = "Progress", Content = "Quest: " .. tostring(QuestCount) .. " / " .. tostring(MaxQuests), Duration = 3})
+                            end
                         else
-                             -- Optional: Wait a bit if UI isn't loaded yet
                              task.wait(0.5)
                         end
                     elseif step.Exit then 
@@ -589,7 +600,6 @@ local function Accept_MinerGoon_Quest()
                     else 
                         DIALOGUE_EVENT:FireServer(step) 
                     end
-                    
                     task.wait(0.3) 
                 end
                 task.wait(1)
@@ -883,5 +893,5 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Script Loaded", Content = "FIXED: DIALOGUE & WARP", Duration = 5})
+Fluent:Notify({Title = "Script Loaded", Content = "FIXED: NO TWEEN + QUEST COUNT", Duration = 5})
 SaveManager:LoadAutoloadConfig()
