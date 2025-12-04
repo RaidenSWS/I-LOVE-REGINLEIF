@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // VERSION: AGGRESSIVE GUI CLOSE + SMART RETURN // --
+-- // VERSION: DESTROY GUI + UNANCHOR + SMART CRAFT // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -8,7 +8,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 -- // 1. WINDOW // --
 local Window = Fluent:CreateWindow({
     Title = "เสี่ยปาล์มขอเงินฟรี",
-    SubTitle = "Fixed GUI Close",
+    SubTitle = "Destroy UI / Unanchor",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true, 
@@ -86,7 +86,7 @@ local CurrentState = "FARMING"
 local QuestCount = 0
 local MaxQuests = 5
 local WarpedToMine = false
-local CraftStatusSignal = "IDLE" -- "IDLE", "MAX", "EMPTY"
+local CraftStatusSignal = "IDLE" 
 
 local AGITO_SAFE_CRAME = CFrame.new(-3516.10425, -1.97061276, -3156.91821, -0.579402685, -7.18338145e-09, 0.815041423, -1.60398237e-08, 1, -2.58899147e-09, -0.815041423, -1.45731889e-08, -0.579402685)
 local AGITO_RETREAT_SPEED = 20 
@@ -240,36 +240,32 @@ local function WarpTo(Destination)
     end
 end
 
--- // AGGRESSIVE CLOSE FUNCTION // --
+-- // DESTRUCTIVE GUI CLOSE // --
 local function CloseCraftingGUI()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not PlayerGui then return end
-    
-    local CraftingGUI = PlayerGui:FindFirstChild("CraftingGUI")
-    if CraftingGUI then
-        -- 1. Tell Server we are exiting dialogue (Critical for unfreezing)
+    if PlayerGui then
+        local CraftingGUI = PlayerGui:FindFirstChild("CraftingGUI")
+        
+        -- 1. Tell Server we exit
         DIALOGUE_EVENT:FireServer({Exit = true})
         
-        -- 2. Try to find the actual Exit Button and Click it
-        local ExitBtn = CraftingGUI:FindFirstChild("Exit") or CraftingGUI:FindFirstChild("Close")
-        if ExitBtn then
-            -- Virtual Click
-            if VirtualInputManager then
-                local pos = ExitBtn.AbsolutePosition
-                local size = ExitBtn.AbsoluteSize
-                local center = Vector2.new(pos.X + size.X/2, pos.Y + size.Y/2)
-                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
-                task.wait(0.05)
-                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
-            end
-            -- FireSignal Fallback
-            for _, c in pairs(getconnections(ExitBtn.MouseButton1Click)) do c:Fire() end
+        -- 2. DESTROY THE GUI COMPLETELY
+        if CraftingGUI then
+            CraftingGUI:Destroy()
         end
         
-        -- 3. Brute Force Disable (Visual Only, but helpful)
-        CraftingGUI.Enabled = false
+        -- 3. UN-ANCHOR CHARACTER (Fix stuck bug)
+        local Char = LocalPlayer.Character
+        if Char then
+            local HRP = Char:FindFirstChild("HumanoidRootPart")
+            local Hum = Char:FindFirstChild("Humanoid")
+            if HRP then HRP.Anchored = false end
+            if Hum then Hum.PlatformStand = false end
+        end
+        
+        return true
     end
-    return true
+    return false
 end
 
 -- // CRAFTING ROUTINE // --
@@ -343,7 +339,7 @@ local function RunCraftingRoutine()
         
         if Connection then Connection:Disconnect() end
         
-        -- // CRITICAL FIX: CLOSE UI AGGRESSIVELY // --
+        -- // DESTROY THE UI // --
         CloseCraftingGUI()
         task.wait(1) 
         
@@ -946,5 +942,5 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Script Loaded", Content = "AGGRESSIVE GUI CLOSE FIX", Duration = 5})
+Fluent:Notify({Title = "Script Loaded", Content = "UI DESTROY + UNANCHOR", Duration = 5})
 SaveManager:LoadAutoloadConfig()
