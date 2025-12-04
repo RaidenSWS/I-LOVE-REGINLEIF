@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // VERSION: RESET TO FIRST STEP AFTER CRAFT // --
+-- // VERSION: RAGE WARP + STRICT CLICK COUNT // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -8,7 +8,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 -- // 1. WINDOW // --
 local Window = Fluent:CreateWindow({
     Title = "เสี่ยปาล์มขอเงินฟรี",
-    SubTitle = "Reset to First Step",
+    SubTitle = "RAGE WARP / STRICT COUNT",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true, 
@@ -310,18 +310,25 @@ local function RunCraftingRoutine()
         CloseCraftingGUI()
         task.wait(1) 
         
-        -- 5. RETURN TO FIRST STEP
+        -- 5. RETURN TO FIRST STEP (FORCE WARP)
         CurrentState = "FARMING"
         QuestCount = 0 
         
-        -- IMPORTANT: Set this to FALSE.
-        -- This forces the Main Loop to treat the next cycle exactly like the "First Time" you turned it on.
-        -- It will trigger the "Warp First" block below.
+        -- !!! FORCE RAGE WARP !!! --
+        -- We will NOT wait nicely. We will SPAM warp to ensure it happens.
+        Fluent:Notify({Title = "WARPING", Content = "FORCE WARPING TO MINE...", Duration = 5})
+        
+        CancelMovement() -- Stop any tweens
+        
+        for i = 1, 10 do -- Spam command 10 times
+            WarpTo("Mine's Field")
+            task.wait(0.5) 
+        end
+        
+        -- Reset Flag so logic restarts correctly
         WarpedToMine = false 
         
-        -- Initial Warp just to get away from the crafter
-        WarpTo("Mine's Field")
-        task.wait(2) 
+        task.wait(1) 
     end
 end
 
@@ -550,9 +557,7 @@ local function WaitForDialogueUI()
     if not PlayerGui then return false end
     
     local Timeout = 0
-    -- Wait until a known dialogue UI appears
-    -- Update these names if your game uses different ones!
-    while _G.AutoFarm and Timeout < 20 do -- Wait up to 10 seconds
+    while _G.AutoFarm and Timeout < 20 do 
         if PlayerGui:FindFirstChild("DialogueGui") or PlayerGui:FindFirstChild("Dialogue") or PlayerGui:FindFirstChild("NPCGui") then
             return true
         end
@@ -586,34 +591,33 @@ local function Accept_MinerGoon_Quest()
                 if desc:IsA("ClickDetector") then fireclickdetector(desc) elseif desc:IsA("ProximityPrompt") then fireproximityprompt(desc) end
             end
             
-            -- !!! CRITICAL FIX: WAIT FOR UI BEFORE DOING ANYTHING !!! --
+            -- WAIT FOR UI
             if not WaitForDialogueUI() then
                 _G.QuestingMode = false
-                return -- UI didn't open, abort this attempt
+                return 
             end
             
             local MaxTries = 0
-            HasCountedCurrentTurnIn = false -- Reset flag for this specific conversation
+            HasCountedCurrentTurnIn = false 
 
             while _G.AutoFarm and GetMinerGoonQuestStatus() ~= "ACTIVE" and MaxTries < 3 do
                 
-                -- Check pause again inside loop
                 while _G.IsTransforming do task.wait(1) end
                 
                 local steps = {{Choice = "[ Quest ]"}, {Choice = "[ Repeatable ]"}, {Choice = "Yes, I've done it."}, {Choice = "Okay"}, {Exit = true}}
                 for _, step in ipairs(steps) do
                     if not _G.AutoFarm then _G.QuestingMode = false; return end
                     
-                    -- CHECK UI AGAIN BEFORE EVERY CHOICE
                     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
                     if PlayerGui and (PlayerGui:FindFirstChild("DialogueGui") or PlayerGui:FindFirstChild("Dialogue") or PlayerGui:FindFirstChild("NPCGui")) then
                         
-                        if step.Choice == "Yes, I've done it." then
+                        -- /// STRICT COUNT LOGIC /// --
+                        if step.Choice == "Yes, I've done it." or step.Choice == "Yes, I've completed it." then
                             DIALOGUE_EVENT:FireServer(step)
-                            -- STRICT COUNTING: ONLY COUNT IF FLAG IS FALSE
+                            -- ONLY COUNT IF THIS IS THE FIRST CLICK THIS SESSION
                             if not HasCountedCurrentTurnIn then
                                 QuestCount = QuestCount + 1
-                                HasCountedCurrentTurnIn = true -- Lock it
+                                HasCountedCurrentTurnIn = true 
                                 Fluent:Notify({Title = "Progress", Content = "Quest: " .. tostring(QuestCount) .. " / " .. tostring(MaxQuests), Duration = 3})
                             end
                         elseif step.Exit then 
@@ -621,9 +625,8 @@ local function Accept_MinerGoon_Quest()
                         else 
                             DIALOGUE_EVENT:FireServer(step) 
                         end
-                        task.wait(0.5) -- Slow down button presses
+                        task.wait(0.5) 
                     else
-                        -- UI Closed unexpectedly
                         break
                     end
                 end
@@ -811,11 +814,11 @@ FarmToggle:OnChanged(function()
                             -- This runs on startup AND after crafting resets --
                             if not WarpedToMine then
                                 Fluent:Notify({Title = "Status", Content = "Starting... Warping to Mine first!", Duration = 3})
-                                WarpTo("Mine's Field")
-                                task.wait(3) -- Wait for warp
-                                WarpTo("Mine's Field") -- Double tap just in case
+                                
+                                -- FORCE SPAM WARP ON STARTUP
+                                for i=1,5 do WarpTo("Mine's Field"); task.wait(0.2) end
+                                task.wait(3) 
                                 WarpedToMine = true
-                                task.wait(2) 
                             end
 
                             if _G.AutoQuest then
@@ -924,5 +927,5 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Script Loaded", Content = "RESET TO FIRST STEP", Duration = 5})
+Fluent:Notify({Title = "Script Loaded", Content = "RAGE WARP & STRICT COUNT", Duration = 5})
 SaveManager:LoadAutoloadConfig()
