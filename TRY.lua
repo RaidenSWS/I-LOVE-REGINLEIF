@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // VERSION: FORCE RETURN FIX + SAFETY TIMER // --
+-- // VERSION: AGGRESSIVE GUI CLOSE + SMART RETURN // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -8,7 +8,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 -- // 1. WINDOW // --
 local Window = Fluent:CreateWindow({
     Title = "เสี่ยปาล์มขอเงินฟรี",
-    SubTitle = "Fixed Return Logic",
+    SubTitle = "Fixed GUI Close",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true, 
@@ -155,7 +155,6 @@ local function FireHeavyAttack()
 end
 
 local function FireSkill(key)
-    -- Don't block X key here
     if _G.IsTransforming and key ~= "X" then return end
     if not _G.AutoFarm then return end
     
@@ -203,7 +202,7 @@ task.spawn(function()
     end
 end)
 
--- AUTO FORM LOOP
+-- Auto Form
 task.spawn(function()
     while task.wait(3) do 
         if _G.AutoForm and not _G.IsTransforming then
@@ -212,7 +211,7 @@ task.spawn(function()
     end
 end)
 
--- TRANSFORM TEXT DETECTION
+-- Transform Text Detect
 CLIENT_NOTIFIER.OnClientEvent:Connect(function(Data)
     if _G.QuestingMode then return end
     if _G.AutoForm and type(Data) == "table" and Data.Text then
@@ -241,9 +240,36 @@ local function WarpTo(Destination)
     end
 end
 
+-- // AGGRESSIVE CLOSE FUNCTION // --
 local function CloseCraftingGUI()
-    -- REMOVED CLOSE FUNCTION TO PREVENT BUGS
-    return false
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not PlayerGui then return end
+    
+    local CraftingGUI = PlayerGui:FindFirstChild("CraftingGUI")
+    if CraftingGUI then
+        -- 1. Tell Server we are exiting dialogue (Critical for unfreezing)
+        DIALOGUE_EVENT:FireServer({Exit = true})
+        
+        -- 2. Try to find the actual Exit Button and Click it
+        local ExitBtn = CraftingGUI:FindFirstChild("Exit") or CraftingGUI:FindFirstChild("Close")
+        if ExitBtn then
+            -- Virtual Click
+            if VirtualInputManager then
+                local pos = ExitBtn.AbsolutePosition
+                local size = ExitBtn.AbsoluteSize
+                local center = Vector2.new(pos.X + size.X/2, pos.Y + size.Y/2)
+                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
+                task.wait(0.05)
+                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
+            end
+            -- FireSignal Fallback
+            for _, c in pairs(getconnections(ExitBtn.MouseButton1Click)) do c:Fire() end
+        end
+        
+        -- 3. Brute Force Disable (Visual Only, but helpful)
+        CraftingGUI.Enabled = false
+    end
+    return true
 end
 
 -- // CRAFTING ROUTINE // --
@@ -284,9 +310,7 @@ local function RunCraftingRoutine()
             end
         end)
         
-        -- START TIMER FOR SAFETY (Prevents getting stuck)
         local StartCraftTime = tick()
-        
         local CraftList = {"Blue Fragment", "Red Fragment", "Blue Sappyre", "Red Emperor"}
         local MustReturnToFarm = false
         
@@ -294,11 +318,7 @@ local function RunCraftingRoutine()
             if not _G.AutoFarm then break end
             if MustReturnToFarm then break end
             
-            -- CHECK TIMER (60s Max Crafting time)
-            if (tick() - StartCraftTime) > 60 then 
-                Fluent:Notify({Title = "Timeout", Content = "Crafting took too long! Force leaving.", Duration = 3})
-                break 
-            end
+            if (tick() - StartCraftTime) > 60 then break end
             
             local ItemActive = true
             Fluent:Notify({Title = "Crafting", Content = "Crafting: " .. ItemName, Duration = 2})
@@ -317,31 +337,28 @@ local function RunCraftingRoutine()
                     ItemActive = false 
                 end
                 
-                -- Inner loop failsafe
-                if (tick() - StartCraftTime) > 60 then 
-                    MustReturnToFarm = true
-                    break 
-                end
+                if (tick() - StartCraftTime) > 60 then MustReturnToFarm = true; break end
             end
         end
         
         if Connection then Connection:Disconnect() end
-        task.wait(0.5) 
         
-        -- // RETURN LOGIC - EXACT COPY OF STARTUP // --
+        -- // CRITICAL FIX: CLOSE UI AGGRESSIVELY // --
+        CloseCraftingGUI()
+        task.wait(1) 
+        
+        -- // RETURN LOGIC // --
         CurrentState = "FARMING"
         QuestCount = 0 
-        WarpedToMine = false -- Set flag to false so main loop knows to check position
+        WarpedToMine = false 
         
         Fluent:Notify({Title = "Return", Content = "FORCE WARPING BACK TO MINE...", Duration = 5})
         
-        -- Force the warp RIGHT NOW to prevent "Nothing Happened"
         for i = 1, 8 do 
             WarpTo("Mine's Field")
             task.wait(0.3) 
         end
         
-        -- Backup Tween if user is still nearby (Distance Check)
         local MineNPC = Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("LeeTheMiner")
         if MineNPC and MineNPC:FindFirstChild("HumanoidRootPart") then
             local Dist = (GetRootPart().Position - MineNPC.HumanoidRootPart.Position).Magnitude
@@ -929,5 +946,5 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Script Loaded", Content = "FIXED RETURN LOGIC", Duration = 5})
+Fluent:Notify({Title = "Script Loaded", Content = "AGGRESSIVE GUI CLOSE FIX", Duration = 5})
 SaveManager:LoadAutoloadConfig()
