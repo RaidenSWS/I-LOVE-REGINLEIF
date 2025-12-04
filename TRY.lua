@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // VERSION: KEEP UI OPEN + TRANSFORM PAUSE FIX // --
+-- // VERSION: AUTO TRANSFORM LOOP + SMART PAUSE + KEEP UI // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -8,7 +8,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 -- // 1. WINDOW // --
 local Window = Fluent:CreateWindow({
     Title = "เสี่ยปาล์มขอเงินฟรี",
-    SubTitle = "Keep UI Open / Fix Transform",
+    SubTitle = "Fixed Transform & Craft",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true, 
@@ -110,7 +110,9 @@ local function TweenTo(TargetCFrame, CustomSpeed)
     local RootPart = GetRootPart()
     if not RootPart then return end
     
+    -- WAIT FOR TRANSFORM (Pause Movement)
     while _G.IsTransforming and _G.AutoFarm do task.wait(0.5) end
+    
     if not _G.AutoFarm then return end
     
     local SpeedToUse = CustomSpeed or _G.TweenSpeed
@@ -126,7 +128,10 @@ local function TweenTo(TargetCFrame, CustomSpeed)
         if not _G.AutoFarm then Tween:Cancel(); Connection:Disconnect() end
         if not _G.IsTransforming then 
              pcall(function() RootPart.Velocity = Vector3.zero end)
-        else Tween:Cancel() end
+        else 
+             -- Stop Tween if Transforming starts mid-move
+             Tween:Cancel() 
+        end
     end)
     
     repeat task.wait() until Tween.PlaybackState == Enum.PlaybackState.Completed or not _G.AutoFarm or _G.IsTransforming
@@ -155,7 +160,10 @@ local function FireHeavyAttack()
 end
 
 local function FireSkill(key)
-    if _G.IsTransforming or not _G.AutoFarm then return end
+    -- Don't block X key here, otherwise we can't transform!
+    if _G.IsTransforming and key ~= "X" then return end
+    if not _G.AutoFarm then return end
+    
     local Character = LocalPlayer.Character
     local Handler = Character and Character:FindFirstChild("PlayerHandler")
     local Event = Handler and Handler:FindFirstChild("HandlerEvent")
@@ -200,23 +208,33 @@ task.spawn(function()
     end
 end)
 
--- // UPDATED TRANSFORM LOGIC // --
+-- // AUTO FORM LOOP (Ensures X is pressed) // --
+task.spawn(function()
+    while task.wait(3) do -- Try pressing X every 3 seconds
+        if _G.AutoForm and not _G.IsTransforming then
+            FireSkill("X")
+        end
+    end
+end)
+
+-- // TRANSFORM TEXT DETECTION (Handles the 5s Wait) // --
 CLIENT_NOTIFIER.OnClientEvent:Connect(function(Data)
     if _G.QuestingMode then return end
-    if _G.AutoForm and type(Data) == "table" and Data.Text == "You can now transform to Special Form!" then
-        if not _G.IsTransforming then
-            -- 1. PAUSE EVERYTHING
-            _G.IsTransforming = true 
-            Fluent:Notify({Title = "AUTO FORM", Content = "Transforming... (Wait 5s)", Duration = 5})
-            
-            -- 2. PRESS X
-            FireSkill("X")
-            
-            -- 3. WAIT 5 SECONDS (While flag is true, farming pauses)
-            task.wait(5) 
-            
-            -- 4. RESUME EVERYTHING
-            _G.IsTransforming = false 
+    if _G.AutoForm and type(Data) == "table" and Data.Text then
+        -- Fuzzy match for "transform" to catch any variation
+        if string.find(string.lower(Data.Text), "transform") then
+            if not _G.IsTransforming then
+                _G.IsTransforming = true 
+                Fluent:Notify({Title = "AUTO FORM", Content = "Transforming... Pausing 5s", Duration = 5})
+                
+                -- Press X again just to be sure
+                FireSkill("X")
+                
+                -- Wait 5 seconds for animation
+                task.wait(5) 
+                
+                _G.IsTransforming = false 
+            end
         end
     end
 end)
@@ -234,10 +252,32 @@ local function WarpTo(Destination)
     end
 end
 
+local function CloseCraftingGUI()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if PlayerGui then
+        local CraftingGUI = PlayerGui:FindFirstChild("CraftingGUI")
+        if CraftingGUI and CraftingGUI:FindFirstChild("Exit") then
+            local ExitBtn = CraftingGUI.Exit
+            if VirtualInputManager then
+                local pos = ExitBtn.AbsolutePosition
+                local size = ExitBtn.AbsoluteSize
+                local center = Vector2.new(pos.X + size.X/2, pos.Y + size.Y/2)
+                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
+                task.wait(0.05)
+                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
+            end
+            if ExitBtn.MouseButton1Click then 
+                 pcall(function() for _,c in pairs(getconnections(ExitBtn.MouseButton1Click)) do c:Fire() end end)
+            end
+            return true
+        end
+    end
+    return false
+end
+
 -- // CRAFTING ROUTINE // --
 
 local function RunCraftingRoutine()
-    -- 1. WARP TO CENTER
     WarpTo("Rider's Center")
     Fluent:Notify({Title = "Crafting", Content = "Warping to Center...", Duration = 3})
     task.wait(6) 
@@ -252,7 +292,7 @@ local function RunCraftingRoutine()
     
     local Root = NPC_Craft:FindFirstChild("HumanoidRootPart") or NPC_Craft:FindFirstChild("Torso")
     if Root then
-        -- 2. MOVE & INTERACT
+        -- MOVE & INTERACT
         TweenTo(Root.CFrame * CFrame.new(0, 0, 3))
         task.wait(0.5)
         
@@ -261,25 +301,21 @@ local function RunCraftingRoutine()
         DIALOGUE_EVENT:FireServer({Choice = "[ Craft ]"})
         task.wait(1)
         
-        -- 3. SIGNAL LISTENER (DETERMINE MAX vs EMPTY)
+        -- SIGNAL LISTENER
         CraftStatusSignal = "IDLE"
         local Connection
         Connection = CRAFTING_EVENT.OnClientEvent:Connect(function(Data)
             if type(Data) == "table" and Data.Callback then
                 local msg = string.lower(Data.Callback)
-                
-                -- IF "Not enough material" -> EMPTY -> Go Back to Farm
                 if string.find(msg, "material") or string.find(msg, "enough") or string.find(msg, "cost") then
                     CraftStatusSignal = "EMPTY"
-                    
-                -- IF "Max", "Full", "Limit", "Unable" -> MAX -> Next Item
                 elseif string.find(msg, "max") or string.find(msg, "full") or string.find(msg, "unable") or string.find(msg, "limit") then
                     CraftStatusSignal = "MAX"
                 end
             end
         end)
         
-        -- 4. PRIORITY CRAFT LOOP
+        -- PRIORITY CRAFT LOOP
         local CraftList = {"Blue Fragment", "Red Fragment", "Blue Sappyre", "Red Emperor"}
         local MustReturnToFarm = false
         
@@ -293,50 +329,46 @@ local function RunCraftingRoutine()
             while _G.AutoFarm and ItemActive do
                 CraftStatusSignal = "IDLE" -- Reset signal
                 CRAFTING_EVENT:FireServer("Special", ItemName)
-                task.wait(0.3) -- Fast craft
+                task.wait(0.3) 
                 
-                -- Check Signal
                 if CraftStatusSignal == "EMPTY" then
                     Fluent:Notify({Title = "Crafting", Content = "Materials Empty! Returning...", Duration = 3})
                     ItemActive = false
-                    MustReturnToFarm = true -- BREAK ALL LOOPS
+                    MustReturnToFarm = true 
                 elseif CraftStatusSignal == "MAX" then
                     Fluent:Notify({Title = "Crafting", Content = ItemName .. " MAXED! Switching...", Duration = 2})
-                    ItemActive = false -- Break inner loop, go to NEXT item
+                    ItemActive = false 
                 end
             end
         end
         
         if Connection then Connection:Disconnect() end
-        -- REMOVED: CloseCraftingGUI() -- UI stays open!
+        -- KEEP UI OPEN (Do not close)
         task.wait(0.5) 
         
-        -- 5. RETURN LOGIC (WARP + TWEEN FALLBACK)
+        -- RETURN LOGIC
         CurrentState = "FARMING"
         QuestCount = 0 
         
         Fluent:Notify({Title = "Return", Content = "Returning to Mine...", Duration = 3})
         CancelMovement()
         
-        -- ATTEMPT 1: RAGE WARP
+        -- 1. RAGE WARP
         for i = 1, 5 do WarpTo("Mine's Field"); task.wait(0.5) end
         task.wait(2)
         
-        -- ATTEMPT 2: TWEEN FALLBACK (If Warp Failed)
+        -- 2. TWEEN FALLBACK
         local MineNPC = Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("LeeTheMiner")
         if MineNPC and MineNPC:FindFirstChild("HumanoidRootPart") then
             local MyPos = GetRootPart().Position
             local Dist = (MyPos - MineNPC.HumanoidRootPart.Position).Magnitude
             
-            -- If we are still far away (e.g. > 300 studs), Warp failed. TWEEN BACK.
             if Dist > 300 then
                 Fluent:Notify({Title = "Warp Failed", Content = "Tweening (Flying) to Mine...", Duration = 3})
-                -- Use TweenTo with generic movement logic
-                TweenTo(MineNPC.HumanoidRootPart.CFrame * CFrame.new(0,0,5), 300) -- Slower speed to be safe
+                TweenTo(MineNPC.HumanoidRootPart.CFrame * CFrame.new(0,0,5), 300) 
             end
         end
         
-        -- Reset Flag to restart cycle
         WarpedToMine = false 
         task.wait(1) 
     end
@@ -383,7 +415,6 @@ end
 
 local function KillEnemy(EnemyName)
     if not _G.AutoFarm then return end
-    -- PAUSE IF TRANSFORMING
     while _G.IsTransforming and _G.AutoFarm do task.wait(0.5) end
     
     local Target = GetNearestTarget(EnemyName)
@@ -430,7 +461,6 @@ local function KillEnemy(EnemyName)
 
         while _G.AutoFarm and Target.Parent == LIVES_FOLDER do
             if not Target:FindFirstChild("HumanoidRootPart") or Target.Humanoid.Health <= 0 then break end
-            -- PAUSE COMBAT IF TRANSFORMING
             if _G.IsTransforming then repeat task.wait(0.2) until not _G.IsTransforming else DoCombat() end
             task.wait(ATTACK_SPEED)
         end
@@ -579,7 +609,6 @@ local function WaitForDialogueUI()
 end
 
 local function Accept_MinerGoon_Quest()
-    -- 1. PAUSE IF TRANSFORMING
     while _G.IsTransforming do 
         Fluent:Notify({Title = "Paused", Content = "Waiting for Transformation...", Duration = 1})
         task.wait(1)
@@ -596,25 +625,18 @@ local function Accept_MinerGoon_Quest()
             task.wait(0.2)
             if not _G.AutoFarm then _G.QuestingMode = false; return end
             
-            -- CLICK NPC
             for _, desc in pairs(NPC_Lei:GetDescendants()) do
                 if desc:IsA("ClickDetector") then fireclickdetector(desc) elseif desc:IsA("ProximityPrompt") then fireproximityprompt(desc) end
             end
             
-            -- WAIT FOR UI (Prevents blind firing)
             if not WaitForDialogueUI() then
                 _G.QuestingMode = false
                 return 
             end
             
-            -- GET CURRENT QUEST STATUS
             local Status = GetMinerGoonQuestStatus()
             
-            -- // SEPARATE PATHS: ACCEPT vs TURN IN // --
-            
             if Status == "NONE" then
-                 -- PATH 1: ACCEPT NEW QUEST
-                 -- DO NOT RUN "Yes, I've done it."
                  local steps = {{Choice = "[ Quest ]"}, {Choice = "[ Repeatable ]"}, {Choice = "Okay"}, {Exit = true}}
                  for _, step in ipairs(steps) do
                      if not _G.AutoFarm then break end
@@ -624,8 +646,6 @@ local function Accept_MinerGoon_Quest()
                  end
                  
             elseif Status == "COMPLETED" then
-                 -- PATH 2: TURN IN COMPLETED QUEST
-                 -- RUN "Yes, I've done it." AND COUNT
                  DIALOGUE_EVENT:FireServer({Choice = "Yes, I've done it."})
                  task.wait(0.5)
                  DIALOGUE_EVENT:FireServer({Choice = "Okay"})
@@ -928,5 +948,5 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Script Loaded", Content = "SMART PRIORITY CRAFT + TWEEN", Duration = 5})
+Fluent:Notify({Title = "Script Loaded", Content = "FIXED TRANSFORM & CRAFT", Duration = 5})
 SaveManager:LoadAutoloadConfig()
