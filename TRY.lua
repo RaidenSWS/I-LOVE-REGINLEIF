@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // VERSION: FINAL FIXED (Real Exit Click + Priority Craft) // --
+-- // VERSION: TACTICAL RESPAWN (FIX STUCK) // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -8,7 +8,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 -- // 1. WINDOW // --
 local Window = Fluent:CreateWindow({
     Title = "เสี่ยปาล์มขอเงินฟรี",
-    SubTitle = "Fixed Exit & Warp",
+    SubTitle = "Tactical Respawn Fix",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true, 
@@ -202,7 +202,7 @@ task.spawn(function()
     end
 end)
 
--- Auto Form Loop
+-- Auto Form
 task.spawn(function()
     while task.wait(3) do 
         if _G.AutoForm and not _G.IsTransforming then
@@ -237,49 +237,6 @@ local function WarpTo(Destination)
                 Destination
             }
         })
-    end
-end
-
--- // REAL EXIT CLICKER // --
-local function ClickExitButton()
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not PlayerGui then return end
-    
-    local CraftingGUI = PlayerGui:FindFirstChild("CraftingGUI")
-    if CraftingGUI then
-        -- FOUND THE BUTTON YOU SHOWED ME
-        local ExitBtn = CraftingGUI:FindFirstChild("Exit") 
-        
-        if ExitBtn then
-            -- 1. Virtual Click (Best for Unfreezing)
-            if VirtualInputManager then
-                local pos = ExitBtn.AbsolutePosition
-                local size = ExitBtn.AbsoluteSize
-                local center = Vector2.new(pos.X + size.X/2, pos.Y + size.Y/2)
-                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
-                task.wait(0.05)
-                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
-            end
-            
-            -- 2. Signal Fire (Backup)
-            for _, c in pairs(getconnections(ExitBtn.MouseButton1Click)) do c:Fire() end
-            
-            -- 3. Also try closing the Frame logic if exists
-            local ReturnBtn = CraftingGUI:FindFirstChild("Frame") and CraftingGUI.Frame:FindFirstChild("Return")
-            if ReturnBtn then
-               for _, c in pairs(getconnections(ReturnBtn.MouseButton1Click)) do c:Fire() end
-            end
-        end
-        
-        -- 4. Tell Server we are done
-        DIALOGUE_EVENT:FireServer({Exit = true})
-    end
-    
-    -- 5. Force Unfreeze Character (Physics Hack)
-    local Char = LocalPlayer.Character
-    if Char then
-        local HRP = Char:FindFirstChild("HumanoidRootPart")
-        if HRP then HRP.Anchored = false end
     end
 end
 
@@ -353,30 +310,32 @@ local function RunCraftingRoutine()
         end
         
         if Connection then Connection:Disconnect() end
+        task.wait(0.5) 
         
-        -- // CLICK THE EXIT BUTTON FOR REAL // --
-        ClickExitButton()
-        task.wait(1) 
-        
-        -- // RETURN LOGIC // --
+        -- // TACTICAL RESPAWN (THE FIX) // --
         CurrentState = "FARMING"
         QuestCount = 0 
         WarpedToMine = false 
         
-        Fluent:Notify({Title = "Return", Content = "FORCE WARPING BACK TO MINE...", Duration = 5})
+        Fluent:Notify({Title = "Unstucking", Content = "Respawning Character to Clear UI State...", Duration = 3})
         
-        for i = 1, 8 do 
-            WarpTo("Mine's Field")
-            task.wait(0.3) 
+        -- 1. KILL CHARACTER (Forces server to clear 'In Dialogue' state)
+        local Char = LocalPlayer.Character
+        if Char and Char:FindFirstChild("Humanoid") then
+            Char.Humanoid.Health = 0
         end
         
-        local MineNPC = Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("LeeTheMiner")
-        if MineNPC and MineNPC:FindFirstChild("HumanoidRootPart") then
-            local Dist = (GetRootPart().Position - MineNPC.HumanoidRootPart.Position).Magnitude
-            if Dist > 300 then
-                Fluent:Notify({Title = "Warp Failed", Content = "Flying back manually...", Duration = 3})
-                TweenTo(MineNPC.HumanoidRootPart.CFrame * CFrame.new(0,0,5), 250) 
-            end
+        -- 2. WAIT FOR RESPAWN
+        LocalPlayer.CharacterAdded:Wait()
+        local NewChar = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        NewChar:WaitForChild("HumanoidRootPart")
+        task.wait(1.5) -- Wait for load
+        
+        -- 3. RESPAWN SUCCESS - NOW WARP
+        Fluent:Notify({Title = "Return", Content = "Respawned! Warping to Mine...", Duration = 3})
+        for i = 1, 5 do 
+            WarpTo("Mine's Field")
+            task.wait(0.5) 
         end
         
         task.wait(1) 
@@ -957,5 +916,5 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Script Loaded", Content = "FIXED EXIT CLICKER", Duration = 5})
+Fluent:Notify({Title = "Script Loaded", Content = "TACTICAL RESPAWN FIX", Duration = 5})
 SaveManager:LoadAutoloadConfig()
