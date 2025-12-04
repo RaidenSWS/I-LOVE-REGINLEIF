@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // FINAL VERSION: 5 QUEST COUNTER + SIGNAL STOP // --
+-- // FINAL VERSION: QUEST COUNT FIX + CRAFTING LOOP RETURN // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -133,6 +133,11 @@ local function TweenTo(TargetCFrame, CustomSpeed)
     if Connection then Connection:Disconnect() end
 end
 
+local function CancelMovement()
+    local Root = GetRootPart()
+    if Root then Root.Velocity = Vector3.zero end
+end
+
 local function FireAttack()
     if _G.IsTransforming or not _G.AutoFarm then return end
     local Character = LocalPlayer.Character
@@ -255,10 +260,10 @@ local function CloseCraftingGUI()
     return false
 end
 
--- // CRAFTING ROUTINE (SIGNAL DETECTION) // --
+-- // CRAFTING ROUTINE // --
 
 local function RunCraftingRoutine()
-    -- 1. WARP TO CENTER FIRST
+    -- 1. WARP TO CENTER
     WarpTo("Rider's Center")
     Fluent:Notify({Title = "Crafting", Content = "Warping to Center...", Duration = 3})
     task.wait(6) 
@@ -282,11 +287,10 @@ local function RunCraftingRoutine()
         DIALOGUE_EVENT:FireServer({Choice = "[ Craft ]"})
         task.wait(1)
         
-        -- 3. SIGNAL LISTENER (Detects "Unable to craft")
+        -- 3. SIGNAL LISTENER
         OutOfMaterials = false
         local Connection
         Connection = CRAFTING_EVENT.OnClientEvent:Connect(function(Data)
-            -- Matches "Unable to craft—more materials needed." (UTF-8 safe check)
             if type(Data) == "table" and Data.Callback and (string.find(Data.Callback, "Unable to craft") or string.find(Data.Callback, "more materials needed")) then
                 OutOfMaterials = true
                 Fluent:Notify({Title = "Crafting", Content = "Materials Empty! Stopping...", Duration = 3})
@@ -295,14 +299,10 @@ local function RunCraftingRoutine()
         
         -- 4. CRAFT LOOP
         while _G.AutoFarm and not OutOfMaterials do
-            -- Craft Fragments
             CRAFTING_EVENT:FireServer("Special", "Blue Fragment"); task.wait(0.1)
             CRAFTING_EVENT:FireServer("Special", "Red Fragment"); task.wait(0.1)
-            
-            -- Craft Upgrades (Drains fragments logic handled by game refusal signal now)
             CRAFTING_EVENT:FireServer("Special", "Blue Sappyre"); task.wait(0.1)
             CRAFTING_EVENT:FireServer("Special", "Red Emperor"); task.wait(0.1)
-            
             task.wait(0.2)
         end
         
@@ -310,12 +310,13 @@ local function RunCraftingRoutine()
         CloseCraftingGUI()
         task.wait(1) 
         
-        -- 5. RETURN SEQUENCE
+        -- 5. RESET & PREPARE FOR RETURN
+        -- We do NOT warp here. We reset variables so the Main Loop triggers the warp.
         CurrentState = "FARMING"
-        QuestCount = 0 -- Reset Counter
-        WarpTo("Mine's Field") -- Warp back
-        WarpedToMine = true -- Prevent double warp logic
-        task.wait(5) 
+        QuestCount = 0 
+        WarpedToMine = false -- Set false so main loop detects we are not at mine
+        Fluent:Notify({Title = "Cycle Complete", Content = "Returning to Farm...", Duration = 3})
+        task.wait(2) 
     end
 end
 
@@ -559,10 +560,10 @@ local function Accept_MinerGoon_Quest()
                     if step.Exit then DIALOGUE_EVENT:FireServer({Exit = true}) else DIALOGUE_EVENT:FireServer(step) end
                     task.wait(0.3) 
                     
-                    -- Check if we turned it in successfully (Step: Yes, I've done it)
+                    -- COUNT QUEST HERE
                     if step.Choice == "Yes, I've done it." then
-                        QuestCount = QuestCount + 1
-                        Fluent:Notify({Title = "Progress", Content = "Quest: " .. tostring(QuestCount) .. " / " .. tostring(MaxQuests), Duration = 3})
+                         QuestCount = QuestCount + 1
+                         Fluent:Notify({Title = "Progress", Content = "Quest: " .. tostring(QuestCount) .. " / " .. tostring(MaxQuests), Duration = 3})
                     end
                 end
                 task.wait(1)
@@ -769,7 +770,7 @@ FarmToggle:OnChanged(function()
                         local Status = GetDagubaQuestStatus()
                         
                         if Status == "COMPLETED" then
-                            CancelMovement() -- Stop Tween
+                            CancelMovement() -- STOP
                             Fluent:Notify({Title = "Daguba", Content = "Quest Completed! Waiting 20s...", Duration = 5})
                             
                             for i = 1, 20 do 
