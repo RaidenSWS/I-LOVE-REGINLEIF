@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // VERSION: RAGE WARP + STRICT CLICK COUNT // --
+-- // VERSION: SEPARATE ACCEPT/TURN-IN + SMART CRAFTING // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -8,7 +8,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 -- // 1. WINDOW // --
 local Window = Fluent:CreateWindow({
     Title = "เสี่ยปาล์มขอเงินฟรี",
-    SubTitle = "RAGE WARP / STRICT COUNT",
+    SubTitle = "Fixed Count / Smart Craft",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true, 
@@ -87,7 +87,6 @@ local QuestCount = 0
 local MaxQuests = 5
 local OutOfMaterials = false
 local WarpedToMine = false
-local HasCountedCurrentTurnIn = false -- Fix for double counting
 
 local AGITO_SAFE_CRAME = CFrame.new(-3516.10425, -1.97061276, -3156.91821, -0.579402685, -7.18338145e-09, 0.815041423, -1.60398237e-08, 1, -2.58899147e-09, -0.815041423, -1.45731889e-08, -0.579402685)
 local AGITO_RETREAT_SPEED = 20 
@@ -287,45 +286,45 @@ local function RunCraftingRoutine()
         DIALOGUE_EVENT:FireServer({Choice = "[ Craft ]"})
         task.wait(1)
         
-        -- 3. SIGNAL LISTENER
+        -- 3. SIGNAL LISTENER (Checks if not enough fragments/materials)
         OutOfMaterials = false
         local Connection
         Connection = CRAFTING_EVENT.OnClientEvent:Connect(function(Data)
+            -- If game says unable to craft, it means we ran out of blue/red fragments or other items
             if type(Data) == "table" and Data.Callback and (string.find(Data.Callback, "Unable to craft") or string.find(Data.Callback, "more materials needed")) then
                 OutOfMaterials = true
-                Fluent:Notify({Title = "Crafting", Content = "Materials Empty! Stopping...", Duration = 3})
+                Fluent:Notify({Title = "Crafting", Content = "Fragments/Materials Empty! Stopping...", Duration = 3})
             end
         end)
         
-        -- 4. CRAFT LOOP
+        -- 4. CRAFT LOOP (Running until OutOfMaterials)
         while _G.AutoFarm and not OutOfMaterials do
+            -- Try crafting all items in order
             CRAFTING_EVENT:FireServer("Special", "Blue Fragment"); task.wait(0.1)
             CRAFTING_EVENT:FireServer("Special", "Red Fragment"); task.wait(0.1)
             CRAFTING_EVENT:FireServer("Special", "Blue Sappyre"); task.wait(0.1)
             CRAFTING_EVENT:FireServer("Special", "Red Emperor"); task.wait(0.1)
-            task.wait(0.2)
+            task.wait(0.3)
         end
         
         if Connection then Connection:Disconnect() end
         CloseCraftingGUI()
         task.wait(1) 
         
-        -- 5. RETURN TO FIRST STEP (FORCE WARP)
+        -- 5. RETURN TO FIRST STEP (RAGE WARP)
         CurrentState = "FARMING"
         QuestCount = 0 
         
-        -- !!! FORCE RAGE WARP !!! --
-        -- We will NOT wait nicely. We will SPAM warp to ensure it happens.
         Fluent:Notify({Title = "WARPING", Content = "FORCE WARPING TO MINE...", Duration = 5})
         
         CancelMovement() -- Stop any tweens
         
-        for i = 1, 10 do -- Spam command 10 times
+        for i = 1, 10 do -- Spam command 10 times to force it
             WarpTo("Mine's Field")
             task.wait(0.5) 
         end
         
-        -- Reset Flag so logic restarts correctly
+        -- Reset Flag so logic restarts correctly (Warp First logic)
         WarpedToMine = false 
         
         task.wait(1) 
@@ -586,53 +585,47 @@ local function Accept_MinerGoon_Quest()
             task.wait(0.2)
             if not _G.AutoFarm then _G.QuestingMode = false; return end
             
-            -- CLICK
+            -- CLICK NPC
             for _, desc in pairs(NPC_Lei:GetDescendants()) do
                 if desc:IsA("ClickDetector") then fireclickdetector(desc) elseif desc:IsA("ProximityPrompt") then fireproximityprompt(desc) end
             end
             
-            -- WAIT FOR UI
+            -- WAIT FOR UI (Prevents blind firing)
             if not WaitForDialogueUI() then
                 _G.QuestingMode = false
                 return 
             end
             
-            local MaxTries = 0
-            HasCountedCurrentTurnIn = false 
-
-            while _G.AutoFarm and GetMinerGoonQuestStatus() ~= "ACTIVE" and MaxTries < 3 do
-                
-                while _G.IsTransforming do task.wait(1) end
-                
-                local steps = {{Choice = "[ Quest ]"}, {Choice = "[ Repeatable ]"}, {Choice = "Yes, I've done it."}, {Choice = "Okay"}, {Exit = true}}
-                for _, step in ipairs(steps) do
-                    if not _G.AutoFarm then _G.QuestingMode = false; return end
-                    
-                    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-                    if PlayerGui and (PlayerGui:FindFirstChild("DialogueGui") or PlayerGui:FindFirstChild("Dialogue") or PlayerGui:FindFirstChild("NPCGui")) then
-                        
-                        -- /// STRICT COUNT LOGIC /// --
-                        if step.Choice == "Yes, I've done it." or step.Choice == "Yes, I've completed it." then
-                            DIALOGUE_EVENT:FireServer(step)
-                            -- ONLY COUNT IF THIS IS THE FIRST CLICK THIS SESSION
-                            if not HasCountedCurrentTurnIn then
-                                QuestCount = QuestCount + 1
-                                HasCountedCurrentTurnIn = true 
-                                Fluent:Notify({Title = "Progress", Content = "Quest: " .. tostring(QuestCount) .. " / " .. tostring(MaxQuests), Duration = 3})
-                            end
-                        elseif step.Exit then 
-                            DIALOGUE_EVENT:FireServer({Exit = true}) 
-                        else 
-                            DIALOGUE_EVENT:FireServer(step) 
-                        end
-                        task.wait(0.5) 
-                    else
-                        break
-                    end
-                end
-                task.wait(1)
-                MaxTries = MaxTries + 1
+            -- GET CURRENT QUEST STATUS
+            local Status = GetMinerGoonQuestStatus()
+            
+            -- // SEPARATE PATHS: ACCEPT vs TURN IN // --
+            
+            if Status == "NONE" then
+                 -- PATH 1: ACCEPT NEW QUEST
+                 -- DO NOT RUN "Yes, I've done it."
+                 local steps = {{Choice = "[ Quest ]"}, {Choice = "[ Repeatable ]"}, {Choice = "Okay"}, {Exit = true}}
+                 for _, step in ipairs(steps) do
+                     if not _G.AutoFarm then break end
+                     if step.Exit then DIALOGUE_EVENT:FireServer({Exit = true}) 
+                     else DIALOGUE_EVENT:FireServer(step) end
+                     task.wait(0.5)
+                 end
+                 
+            elseif Status == "COMPLETED" then
+                 -- PATH 2: TURN IN COMPLETED QUEST
+                 -- RUN "Yes, I've done it." AND COUNT
+                 DIALOGUE_EVENT:FireServer({Choice = "Yes, I've done it."})
+                 task.wait(0.5)
+                 DIALOGUE_EVENT:FireServer({Choice = "Okay"})
+                 task.wait(0.5)
+                 DIALOGUE_EVENT:FireServer({Exit = true})
+                 
+                 QuestCount = QuestCount + 1
+                 Fluent:Notify({Title = "Progress", Content = "Quest: " .. tostring(QuestCount) .. " / " .. tostring(MaxQuests), Duration = 3})
             end
+            
+            task.wait(1)
             _G.QuestingMode = false
         end
     end
@@ -811,11 +804,8 @@ FarmToggle:OnChanged(function()
                             RunCraftingRoutine() -- Go Craft
                         else
                             -- !!! WARP FIRST LOGIC !!! --
-                            -- This runs on startup AND after crafting resets --
                             if not WarpedToMine then
                                 Fluent:Notify({Title = "Status", Content = "Starting... Warping to Mine first!", Duration = 3})
-                                
-                                -- FORCE SPAM WARP ON STARTUP
                                 for i=1,5 do WarpTo("Mine's Field"); task.wait(0.2) end
                                 task.wait(3) 
                                 WarpedToMine = true
@@ -927,5 +917,5 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Script Loaded", Content = "RAGE WARP & STRICT COUNT", Duration = 5})
+Fluent:Notify({Title = "Script Loaded", Content = "SEPARATE LOGIC / SMART CRAFT", Duration = 5})
 SaveManager:LoadAutoloadConfig()
