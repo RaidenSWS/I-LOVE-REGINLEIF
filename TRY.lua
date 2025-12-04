@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // VERSION: DESTROY GUI + UNANCHOR + SMART CRAFT // --
+-- // VERSION: FINAL FIXED (Real Exit Click + Priority Craft) // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -8,7 +8,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 -- // 1. WINDOW // --
 local Window = Fluent:CreateWindow({
     Title = "เสี่ยปาล์มขอเงินฟรี",
-    SubTitle = "Destroy UI / Unanchor",
+    SubTitle = "Fixed Exit & Warp",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true, 
@@ -202,7 +202,7 @@ task.spawn(function()
     end
 end)
 
--- Auto Form
+-- Auto Form Loop
 task.spawn(function()
     while task.wait(3) do 
         if _G.AutoForm and not _G.IsTransforming then
@@ -227,7 +227,7 @@ CLIENT_NOTIFIER.OnClientEvent:Connect(function(Data)
     end
 end)
 
--- WARP FUNCTION
+-- Warp
 local function WarpTo(Destination)
     local Character = LocalPlayer.Character
     if Character and Character:FindFirstChild("PlayerHandler") and Character.PlayerHandler:FindFirstChild("HandlerEvent") then
@@ -240,32 +240,47 @@ local function WarpTo(Destination)
     end
 end
 
--- // DESTRUCTIVE GUI CLOSE // --
-local function CloseCraftingGUI()
+-- // REAL EXIT CLICKER // --
+local function ClickExitButton()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if PlayerGui then
-        local CraftingGUI = PlayerGui:FindFirstChild("CraftingGUI")
+    if not PlayerGui then return end
+    
+    local CraftingGUI = PlayerGui:FindFirstChild("CraftingGUI")
+    if CraftingGUI then
+        -- FOUND THE BUTTON YOU SHOWED ME
+        local ExitBtn = CraftingGUI:FindFirstChild("Exit") 
         
-        -- 1. Tell Server we exit
+        if ExitBtn then
+            -- 1. Virtual Click (Best for Unfreezing)
+            if VirtualInputManager then
+                local pos = ExitBtn.AbsolutePosition
+                local size = ExitBtn.AbsoluteSize
+                local center = Vector2.new(pos.X + size.X/2, pos.Y + size.Y/2)
+                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
+                task.wait(0.05)
+                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
+            end
+            
+            -- 2. Signal Fire (Backup)
+            for _, c in pairs(getconnections(ExitBtn.MouseButton1Click)) do c:Fire() end
+            
+            -- 3. Also try closing the Frame logic if exists
+            local ReturnBtn = CraftingGUI:FindFirstChild("Frame") and CraftingGUI.Frame:FindFirstChild("Return")
+            if ReturnBtn then
+               for _, c in pairs(getconnections(ReturnBtn.MouseButton1Click)) do c:Fire() end
+            end
+        end
+        
+        -- 4. Tell Server we are done
         DIALOGUE_EVENT:FireServer({Exit = true})
-        
-        -- 2. DESTROY THE GUI COMPLETELY
-        if CraftingGUI then
-            CraftingGUI:Destroy()
-        end
-        
-        -- 3. UN-ANCHOR CHARACTER (Fix stuck bug)
-        local Char = LocalPlayer.Character
-        if Char then
-            local HRP = Char:FindFirstChild("HumanoidRootPart")
-            local Hum = Char:FindFirstChild("Humanoid")
-            if HRP then HRP.Anchored = false end
-            if Hum then Hum.PlatformStand = false end
-        end
-        
-        return true
     end
-    return false
+    
+    -- 5. Force Unfreeze Character (Physics Hack)
+    local Char = LocalPlayer.Character
+    if Char then
+        local HRP = Char:FindFirstChild("HumanoidRootPart")
+        if HRP then HRP.Anchored = false end
+    end
 end
 
 -- // CRAFTING ROUTINE // --
@@ -339,8 +354,8 @@ local function RunCraftingRoutine()
         
         if Connection then Connection:Disconnect() end
         
-        -- // DESTROY THE UI // --
-        CloseCraftingGUI()
+        -- // CLICK THE EXIT BUTTON FOR REAL // --
+        ClickExitButton()
         task.wait(1) 
         
         -- // RETURN LOGIC // --
@@ -942,5 +957,5 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Script Loaded", Content = "UI DESTROY + UNANCHOR", Duration = 5})
+Fluent:Notify({Title = "Script Loaded", Content = "FIXED EXIT CLICKER", Duration = 5})
 SaveManager:LoadAutoloadConfig()
