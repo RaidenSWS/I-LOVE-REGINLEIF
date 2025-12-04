@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // FINAL VERSION: QUEST COUNT FIX + CRAFTING LOOP RETURN // --
+-- // FINAL VERSION: STRICT QUEST COUNT + FORCE RETURN WARP // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -310,13 +310,16 @@ local function RunCraftingRoutine()
         CloseCraftingGUI()
         task.wait(1) 
         
-        -- 5. RESET & PREPARE FOR RETURN
-        -- We do NOT warp here. We reset variables so the Main Loop triggers the warp.
+        -- 5. FORCE RETURN
         CurrentState = "FARMING"
         QuestCount = 0 
-        WarpedToMine = false -- Set false so main loop detects we are not at mine
-        Fluent:Notify({Title = "Cycle Complete", Content = "Returning to Farm...", Duration = 3})
-        task.wait(2) 
+        
+        Fluent:Notify({Title = "Return", Content = "Warping back to Mine...", Duration = 3})
+        WarpTo("Mine's Field") -- Force Warp
+        
+        -- Reset flag so main loop knows to verify location
+        WarpedToMine = true 
+        task.wait(5) 
     end
 end
 
@@ -560,7 +563,7 @@ local function Accept_MinerGoon_Quest()
                     if step.Exit then DIALOGUE_EVENT:FireServer({Exit = true}) else DIALOGUE_EVENT:FireServer(step) end
                     task.wait(0.3) 
                     
-                    -- COUNT QUEST HERE
+                    -- STRICT COUNTING FIX: Only count on "Yes, I've done it"
                     if step.Choice == "Yes, I've done it." then
                          QuestCount = QuestCount + 1
                          Fluent:Notify({Title = "Progress", Content = "Quest: " .. tostring(QuestCount) .. " / " .. tostring(MaxQuests), Duration = 3})
