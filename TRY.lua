@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // VERSION: SMART PRIORITY CRAFT + STRICT QUEST + TWEEN FALLBACK // --
+-- // VERSION: KEEP UI OPEN + TRANSFORM PAUSE FIX // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -8,7 +8,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 -- // 1. WINDOW // --
 local Window = Fluent:CreateWindow({
     Title = "เสี่ยปาล์มขอเงินฟรี",
-    SubTitle = "Priority Crafting",
+    SubTitle = "Keep UI Open / Fix Transform",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true, 
@@ -200,24 +200,22 @@ task.spawn(function()
     end
 end)
 
--- Auto Form
-task.spawn(function()
-    while task.wait() do
-        if _G.AutoForm and not _G.IsTransforming and not _G.QuestingMode then
-            FireSkill("X")
-            task.wait(2)
-        end
-    end
-end)
-
+-- // UPDATED TRANSFORM LOGIC // --
 CLIENT_NOTIFIER.OnClientEvent:Connect(function(Data)
     if _G.QuestingMode then return end
     if _G.AutoForm and type(Data) == "table" and Data.Text == "You can now transform to Special Form!" then
         if not _G.IsTransforming then
+            -- 1. PAUSE EVERYTHING
             _G.IsTransforming = true 
-            Fluent:Notify({Title = "AUTO FORM", Content = "Transforming...", Duration = 5})
+            Fluent:Notify({Title = "AUTO FORM", Content = "Transforming... (Wait 5s)", Duration = 5})
+            
+            -- 2. PRESS X
             FireSkill("X")
-            task.wait(8) 
+            
+            -- 3. WAIT 5 SECONDS (While flag is true, farming pauses)
+            task.wait(5) 
+            
+            -- 4. RESUME EVERYTHING
             _G.IsTransforming = false 
         end
     end
@@ -234,29 +232,6 @@ local function WarpTo(Destination)
             }
         })
     end
-end
-
-local function CloseCraftingGUI()
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if PlayerGui then
-        local CraftingGUI = PlayerGui:FindFirstChild("CraftingGUI")
-        if CraftingGUI and CraftingGUI:FindFirstChild("Exit") then
-            local ExitBtn = CraftingGUI.Exit
-            if VirtualInputManager then
-                local pos = ExitBtn.AbsolutePosition
-                local size = ExitBtn.AbsoluteSize
-                local center = Vector2.new(pos.X + size.X/2, pos.Y + size.Y/2)
-                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 1)
-                task.wait(0.05)
-                VirtualInputManager:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 1)
-            end
-            if ExitBtn.MouseButton1Click then 
-                 pcall(function() for _,c in pairs(getconnections(ExitBtn.MouseButton1Click)) do c:Fire() end end)
-            end
-            return true
-        end
-    end
-    return false
 end
 
 -- // CRAFTING ROUTINE // --
@@ -333,8 +308,8 @@ local function RunCraftingRoutine()
         end
         
         if Connection then Connection:Disconnect() end
-        CloseCraftingGUI() -- ONLY Close UI Here
-        task.wait(1) 
+        -- REMOVED: CloseCraftingGUI() -- UI stays open!
+        task.wait(0.5) 
         
         -- 5. RETURN LOGIC (WARP + TWEEN FALLBACK)
         CurrentState = "FARMING"
