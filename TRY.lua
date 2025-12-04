@@ -1,5 +1,5 @@
 -- // RIDER WORLD SCRIPT // --
--- // VERSION: SEPARATE ACCEPT/TURN-IN + SMART CRAFTING // --
+-- // VERSION: SMART CRAFT (IGNORE MAXED) + TWEEN RETURN FALLBACK // --
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -8,7 +8,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 -- // 1. WINDOW // --
 local Window = Fluent:CreateWindow({
     Title = "เสี่ยปาล์มขอเงินฟรี",
-    SubTitle = "Fixed Count / Smart Craft",
+    SubTitle = "Smart Craft & Tween Back",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true, 
@@ -286,47 +286,64 @@ local function RunCraftingRoutine()
         DIALOGUE_EVENT:FireServer({Choice = "[ Craft ]"})
         task.wait(1)
         
-        -- 3. SIGNAL LISTENER (Checks if not enough fragments/materials)
+        -- 3. SIGNAL LISTENER (SMART DETECT)
         OutOfMaterials = false
         local Connection
         Connection = CRAFTING_EVENT.OnClientEvent:Connect(function(Data)
-            -- If game says unable to craft, it means we ran out of blue/red fragments or other items
-            if type(Data) == "table" and Data.Callback and (string.find(Data.Callback, "Unable to craft") or string.find(Data.Callback, "more materials needed")) then
-                OutOfMaterials = true
-                Fluent:Notify({Title = "Crafting", Content = "Fragments/Materials Empty! Stopping...", Duration = 3})
+            -- !!! FIX: ONLY STOP IF IT SAYS NOT ENOUGH MATERIALS !!!
+            -- IGNORE "MAX CAPACITY" or "INVENTORY FULL" so we can keep crafting other items
+            if type(Data) == "table" and Data.Callback then
+                local msg = string.lower(Data.Callback)
+                if string.find(msg, "not enough") or string.find(msg, "material") then
+                    OutOfMaterials = true
+                    Fluent:Notify({Title = "Crafting", Content = "Chunk of Ore Empty! Stopping...", Duration = 3})
+                end
             end
         end)
         
-        -- 4. CRAFT LOOP (Running until OutOfMaterials)
+        -- 4. CRAFT LOOP
+        -- Loop repeatedly until "OutOfMaterials" is triggered by specific error
+        local LoopCount = 0
         while _G.AutoFarm and not OutOfMaterials do
-            -- Try crafting all items in order
             CRAFTING_EVENT:FireServer("Special", "Blue Fragment"); task.wait(0.1)
             CRAFTING_EVENT:FireServer("Special", "Red Fragment"); task.wait(0.1)
             CRAFTING_EVENT:FireServer("Special", "Blue Sappyre"); task.wait(0.1)
             CRAFTING_EVENT:FireServer("Special", "Red Emperor"); task.wait(0.1)
-            task.wait(0.3)
+            task.wait(0.2)
+            
+            -- Failsafe: Don't get stuck forever if UI doesn't send error
+            LoopCount = LoopCount + 1
+            if LoopCount > 200 then break end 
         end
         
         if Connection then Connection:Disconnect() end
         CloseCraftingGUI()
         task.wait(1) 
         
-        -- 5. RETURN TO FIRST STEP (RAGE WARP)
+        -- 5. RETURN TO FIRST STEP (WARP -> CHECK -> TWEEN FALLBACK)
         CurrentState = "FARMING"
         QuestCount = 0 
         
-        Fluent:Notify({Title = "WARPING", Content = "FORCE WARPING TO MINE...", Duration = 5})
+        Fluent:Notify({Title = "Return", Content = "Warping back to Mine...", Duration = 3})
+        CancelMovement()
         
-        CancelMovement() -- Stop any tweens
+        -- STEP A: Try Warp
+        for i = 1, 3 do WarpTo("Mine's Field"); task.wait(1) end
+        task.wait(2)
         
-        for i = 1, 10 do -- Spam command 10 times to force it
-            WarpTo("Mine's Field")
-            task.wait(0.5) 
+        -- STEP B: Distance Check & Tween Fallback
+        local MineNPC = Workspace:FindFirstChild("NPC") and Workspace.NPC:FindFirstChild("LeeTheMiner")
+        if MineNPC and MineNPC:FindFirstChild("HumanoidRootPart") then
+            local Dist = (GetRootPart().Position - MineNPC.HumanoidRootPart.Position).Magnitude
+            
+            if Dist > 300 then -- If still far away (Warp failed)
+                Fluent:Notify({Title = "Warp Failed", Content = "Tweening to Mine...", Duration = 3})
+                TweenTo(MineNPC.HumanoidRootPart.CFrame * CFrame.new(0,0,5), 200) -- Fly back
+            end
         end
         
-        -- Reset Flag so logic restarts correctly (Warp First logic)
+        -- Reset Flag
         WarpedToMine = false 
-        
         task.wait(1) 
     end
 end
@@ -917,5 +934,5 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Script Loaded", Content = "SEPARATE LOGIC / SMART CRAFT", Duration = 5})
+Fluent:Notify({Title = "Script Loaded", Content = "SMART CRAFT + TWEEN BACK", Duration = 5})
 SaveManager:LoadAutoloadConfig()
